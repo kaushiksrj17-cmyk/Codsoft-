@@ -1,0 +1,84 @@
+# ==============================================================================
+# Git Ignore Rules for Cloud File Storage System
+# ==============================================================================
+
+# Environment files and credentials (CRITICAL: Never commit secrets)
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+*.pfx
+
+# Track the example configuration template
+!.env.example
+
+# Python cache and bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Local metadata databases and data directories
+*.db
+*.sqlite
+*.sqlite3
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Test and coverage caches
+.pytest_cache/
+.coverage
+htmlcov/
+*.coverage.*
+.tox/
+.nox/
+
+# Logs
+*.log
+logs/
+
+# Uploaded local files and temporary downloads
+uploads/
+temp/
+downloads/
+assets/temp/
+
+# IDE and Editor configurations
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Streamlit local runtime state
+.streamlit/*
+!.streamlit/config.toml
