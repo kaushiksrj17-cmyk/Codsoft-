@@ -28,6 +28,38 @@ BLOCKED_EXTENSIONS: Set[str] = {
     ".jar",
     ".wsf",
     ".reg",
+    ".hta",
+    ".cpl",
+    ".gadget",
+    ".inf",
+    ".ins",
+    ".isp",
+    ".jse",
+    ".msc",
+    ".msp",
+    ".mst",
+    ".paf",
+    ".sct",
+    ".vb",
+    ".vbe",
+    ".wsc",
+    ".wsh",
+    ".php",
+    ".php3",
+    ".php4",
+    ".php5",
+    ".phtml",
+    ".asp",
+    ".aspx",
+    ".cer",
+    ".asa",
+    ".jsp",
+    ".jspx",
+    ".cgi",
+    ".pl",
+    ".py",
+    ".pyc",
+    ".pyw",
 }
 
 # Windows reserved device names that cannot be used as filenames
@@ -77,8 +109,8 @@ def sanitize_filename(filename: str) -> str:
     # Replace forbidden path characters with underscores
     clean_name = re.sub(r'[/\\:*?"<>|]', "_", clean_name)
 
-    # Avoid leading dots to prevent hidden file exploits
-    clean_name = clean_name.lstrip(".")
+    # Avoid leading and trailing dots/spaces to prevent hidden file and extension bypass exploits
+    clean_name = clean_name.strip(" .")
 
     # Fallback if empty after stripping
     if not clean_name:
@@ -98,7 +130,15 @@ def validate_filename(filename: str) -> Tuple[bool, str]:
     if not filename or not filename.strip():
         return False, "Filename cannot be empty."
 
+    # Detect trailing dot or space (Windows extension bypass and normalization exploits)
+    if filename.endswith(".") or filename.endswith(" "):
+        return False, "Filename cannot end with a dot or space."
+
     raw = filename.strip()
+
+    # Detect control characters or null bytes
+    if re.search(r"[\x00-\x1f\x7f]", raw):
+        return False, "Filename contains control or null characters."
 
     # Detect path traversal sequences
     if ".." in raw or "/" in raw or "\\" in raw:
@@ -108,9 +148,10 @@ def validate_filename(filename: str) -> Tuple[bool, str]:
     if len(raw) > MAX_FILENAME_LENGTH:
         return False, f"Filename exceeds maximum length of {MAX_FILENAME_LENGTH} characters."
 
-    # Check for reserved Windows filenames
+    # Check for reserved Windows filenames (including multipart extensions like CON.tar.gz)
     base_stem = Path(raw).stem.upper()
-    if base_stem in WINDOWS_RESERVED_NAMES:
+    stem_root = base_stem.split(".")[0]
+    if base_stem in WINDOWS_RESERVED_NAMES or stem_root in WINDOWS_RESERVED_NAMES:
         return False, f"'{base_stem}' is a reserved system filename."
 
     # Check for illegal filesystem characters
@@ -141,8 +182,13 @@ def validate_file_extension(
     allowed_extensions: Optional[Set[str]] = None,
     blocked_extensions: Optional[Set[str]] = None,
 ) -> Tuple[bool, str]:
-    """Validate file extension against blocked and allowed lists."""
-    ext = os.path.splitext(filename.lower())[1]
+    """Validate file extension against blocked and allowed lists.
+
+    Strips trailing dots and spaces before inspecting extension to prevent
+    Windows filename normalization bypasses.
+    """
+    clean_fn = filename.strip().rstrip(". ")
+    ext = os.path.splitext(clean_fn.lower())[1]
 
     blocked = blocked_extensions if blocked_extensions is not None else BLOCKED_EXTENSIONS
     if ext in blocked:

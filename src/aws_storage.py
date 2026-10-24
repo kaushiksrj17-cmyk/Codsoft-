@@ -60,6 +60,7 @@ class S3StorageManager:
             self._client = boto3.client(
                 "s3",
                 region_name=self.config.aws_region,
+                endpoint_url=f"https://s3.{self.config.aws_region}.amazonaws.com",
                 aws_access_key_id=self.config.aws_access_key_id,
                 aws_secret_access_key=self.config.aws_secret_access_key,
                 config=boto_cfg,
@@ -87,14 +88,29 @@ class S3StorageManager:
                 return False, f"Bucket '{self.config.s3_bucket_name}' does not exist."
             elif error_code in ("403", "AccessDenied"):
                 return False, "Access denied. Check IAM user permissions for head_bucket."
-            return False, f"AWS ClientError [{error_code}]: {e}"
-        except Exception as e:
-            return False, f"Failed to connect to AWS S3: {e}"
+            return False, f"AWS ClientError [{error_code}]: Operation could not be completed."
+        except Exception:
+            return False, "Failed to connect to AWS S3. Please verify network and credentials."
 
     def build_s3_key(self, user_id: int, filename: str, version: Optional[int] = None) -> str:
         """Construct a scoped, user-isolated S3 key prefix."""
-        version_prefix = f"v{version}/" if version else ""
-        return f"users/{user_id}/files/{version_prefix}{filename}"
+        from src.file_validation import sanitize_filename
+
+        if not isinstance(user_id, int) or user_id <= 0:
+            raise ValueError(f"Invalid user_id {user_id}. Must be a positive integer.")
+
+        clean_filename = sanitize_filename(filename)
+        if not clean_filename:
+            raise ValueError("Filename cannot be empty.")
+
+        if version is not None:
+            if not isinstance(version, int) or version < 1:
+                raise ValueError("Version must be a positive integer.")
+            version_prefix = f"v{version}/"
+        else:
+            version_prefix = ""
+
+        return f"users/{user_id}/files/{version_prefix}{clean_filename}"
 
     def upload_file_bytes(
         self,
@@ -131,10 +147,16 @@ class S3StorageManager:
         self, s3_key: str, expires_in_seconds: int = 3600
     ) -> str:
         """Generate a secure, time-limited presigned URL for downloading a private S3 object."""
+        if not s3_key or not isinstance(s3_key, str) or not s3_key.strip():
+            raise ValueError("S3 key is required to generate presigned download URL.")
+
+        if not (0 < expires_in_seconds <= 604800):
+            raise ValueError("Presigned URL expiration must be between 1 and 604800 seconds (7 days).")
+
         client = self.get_client()
         url = client.generate_presigned_url(
             "get_object",
-            Params={"Bucket": self.config.s3_bucket_name, "Key": s3_key},
+            Params={"Bucket": self.config.s3_bucket_name, "Key": s3_key.strip()},
             ExpiresIn=expires_in_seconds,
         )
         return str(url)
@@ -144,3 +166,17 @@ class S3StorageManager:
         client = self.get_client()
         client.delete_object(Bucket=self.config.s3_bucket_name, Key=s3_key)
         return True
+
+    def object_exists(self, s3_key: str) -> bool:
+        """Check whether an object exists in the S3 bucket using head_object."""
+        client = self.get_client()
+        try:
+            client.head_object(Bucket=self.config.s3_bucket_name, Key=s3_key)
+            return True
+        except ClientError as e:
+            error_code = str(e.response.get("Error", {}).get("Code", ""))
+            if error_code in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+        except Exception:
+            return False

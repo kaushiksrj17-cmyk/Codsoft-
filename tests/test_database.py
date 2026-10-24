@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 import sqlite3
 import pytest
 from src.database import get_connection, get_db_cursor, init_db
@@ -117,3 +118,102 @@ class TestDatabaseSchemaAndInitialization:
             assert cursor.fetchone() is not None
         finally:
             conn.close()
+
+    def test_activity_logging_and_retrieval(self, tmp_path: Path) -> None:
+        """Verify recording and querying audit logs through activity_logger."""
+        from src.activity_logger import get_recent_activities, log_activity
+
+        db_file = str(tmp_path / "activity_test.db")
+        init_db(db_file)
+
+        conn = get_connection(db_file)
+        try:
+            with conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO users (username, email, password_hash, storage_quota_bytes) VALUES (?, ?, ?, ?)",
+                    ("audit_user", "audit@example.com", "hash", 1000000),
+                )
+                user_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        log_id = log_activity(
+            action="FILE_UPLOAD",
+            resource_type="file",
+            user_id=user_id,
+            resource_id="doc_101",
+            details="Uploaded quarterly_report.pdf",
+            ip_address="127.0.0.1",
+            status="SUCCESS",
+            db_path=db_file,
+        )
+        assert log_id > 0
+
+        activities = get_recent_activities(user_id=user_id, limit=10, db_path=db_file)
+        assert len(activities) == 1
+        entry = activities[0]
+        assert entry["action"] == "FILE_UPLOAD"
+        assert entry["resource_id"] == "doc_101"
+        assert entry["status"] == "SUCCESS"
+
+    def test_file_versioning_lifecycle(self, tmp_path: Path) -> None:
+        """Verify sequential versioning and listing through file_versions module."""
+        from src.file_versions import (
+            format_version_label,
+            get_next_version_number,
+            list_file_versions,
+            record_file_version,
+        )
+
+        assert get_next_version_number([]) == 1
+        assert get_next_version_number([1, 2, 3]) == 4
+        assert format_version_label(1) == "v1"
+        assert format_version_label(3) == "v3"
+
+        db_file = str(tmp_path / "version_test.db")
+        init_db(db_file)
+
+        # Create parent user and file
+        conn = get_connection(db_file)
+        try:
+            with conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO users (username, email, password_hash, storage_quota_bytes) VALUES (?, ?, ?, ?)",
+                    ("version_user", "vu@example.com", "hash", 1000000),
+                )
+                user_id = cur.lastrowid
+                cur.execute(
+                    "INSERT INTO files (user_id, original_name, s3_key, s3_bucket, file_size_bytes) VALUES (?, ?, ?, ?, ?)",
+                    (user_id, "doc.pdf", "users/1/files/doc.pdf", "test-bucket", 1024),
+                )
+                file_id = cur.lastrowid
+        finally:
+            conn.close()
+
+        v1_id = record_file_version(
+            file_id=file_id,
+            version_number=1,
+            s3_key="users/1/files/v1/doc.pdf",
+            file_size_bytes=1024,
+            checksum_sha256="abc123sha",
+            db_path=db_file,
+        )
+        assert v1_id > 0
+
+        v2_id = record_file_version(
+            file_id=file_id,
+            version_number=2,
+            s3_key="users/1/files/v2/doc.pdf",
+            file_size_bytes=2048,
+            checksum_sha256="def456sha",
+            db_path=db_file,
+        )
+        assert v2_id > 0
+
+        versions = list_file_versions(file_id=file_id, db_path=db_file)
+        assert len(versions) == 2
+        assert versions[0]["version_number"] == 2
+        assert versions[1]["version_number"] == 1
+

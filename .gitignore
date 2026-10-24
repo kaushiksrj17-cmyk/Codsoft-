@@ -80,4 +80,5 @@ assets/temp/
 Thumbs.db
 
 # Streamlit local runtime state
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml

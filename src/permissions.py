@@ -25,13 +25,17 @@ class SharePermission(str, Enum):
     EDIT = "edit"
 
 
-def is_admin(role: str) -> bool:
+def is_admin(role: Optional[str]) -> bool:
     """Check if the given role string corresponds to an administrator."""
+    if not role or not isinstance(role, str):
+        return False
     return role.strip().lower() == UserRole.ADMIN.value
 
 
 def is_owner(user_id: int, owner_id: int) -> bool:
     """Check if the requesting user is the owner of the resource."""
+    if not isinstance(user_id, int) or not isinstance(owner_id, int) or user_id <= 0 or owner_id <= 0:
+        return False
     return user_id == owner_id
 
 
